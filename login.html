@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Prode</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light d-flex align-items-center" style="height: 100vh;">
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-4">
+                <div class="card shadow">
+                    <div class="card-body p-4">
+                        <h3 class="text-center mb-4">Ingreso al Prode</h3>
+                        
+                        <form id="formularioLogin">
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Correo electrónico</label>
+                                <input type="email" class="form-control" id="email" placeholder="ejemplo@hotmail.com" required>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100 fw-bold">Entrar</button>
+                        </form>
+                        <div id="mensajeError" class="alert alert-danger mt-3 d-none text-center" role="alert">
+                            Credenciales incorrectas.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('formularioLogin').addEventListener('submit', async function(e) {
+            e.preventDefault(); 
+            
+            const email = document.getElementById('email').value;
+            const mensajeError = document.getElementById('mensajeError');
+
+            mensajeError.classList.add('d-none');
+
+            try {
+                const response = await fetch('http://localhost:5239/api/Auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email: email })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('prode_token', data.token);
+                    localStorage.setItem('prode_nombre', data.nombre);
+                    
+                    alert(`¡Bienvenido ${data.nombre}! Token guardado con éxito.`);
+                    window.location.href = 'predicciones.html';
+                } else {
+                    mensajeError.classList.remove('d-none');
+                }
+            } catch (error) {
+                console.error("Error conectando con la API:", error);
+                mensajeError.textContent = "Error de conexión con el servidor.";
+                mensajeError.classList.remove('d-none');
+            }
+        });
+    </script>
+</body>
+</html>
