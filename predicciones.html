@@ -79,7 +79,7 @@
             to { opacity: 1; transform: translateY(0); }
         }
     </style>
-<script src="[https://cdn.jsdelivr.net/npm/sweetalert2@11](https://cdn.jsdelivr.net/npm/sweetalert2@11)"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 <body>
@@ -123,40 +123,96 @@
 
         async function cargarPartidos() {
             try {
-                const response = await fetch('http://localhost:5239/api/Partidos', {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+                const nombre = localStorage.getItem('prode_nombre') || '';
+                const [resPartidos, resPredicciones] = await Promise.all([
+                    fetch('http://localhost:5239/api/Partidos', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    }),
+                    fetch(`http://localhost:5239/api/Predicciones/mis-predicciones?nombreUsuario=${encodeURIComponent(nombre)}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                ]);
 
-                if (response.status === 401) {
-                    alert("Tu sesión expiró.");
+                if (resPartidos.status === 401) {
                     cerrarSesion();
                     return;
                 }
 
-                const partidos = await response.json();
-                dibujarPartidos(partidos);
+                const partidos = await resPartidos.json();
+                const misPredicciones = resPredicciones.ok ? await resPredicciones.json() : [];
+
+                dibujarPartidos(partidos, misPredicciones);
             } catch (error) {
                 console.error("Error al cargar la API:", error);
             }
         }
 
-        function dibujarPartidos(partidos) {
+        function dibujarPartidos(partidos, misPredicciones) {
             const contenedor = document.getElementById('contenedorPartidos');
             contenedor.innerHTML = ''; 
 
             partidos.forEach(partido => {
                 const local = partido.equipoLocal ? partido.equipoLocal.nombre : `Equipo ${partido.equipoLocalId}`;
                 const visitante = partido.equipoVisitante ? partido.equipoVisitante.nombre : `Equipo ${partido.equipoVisitanteId}`;
+                
+                const escudoLocal = (partido.equipoLocal && partido.equipoLocal.escudoUrl) 
+                    ? `<img src="${partido.equipoLocal.escudoUrl}" alt="${local}" style="width: 32px; height: 32px; object-fit: contain;">` 
+                    : `<span>⚽</span>`;
+                const escudoVisitante = (partido.equipoVisitante && partido.equipoVisitante.escudoUrl) 
+                    ? `<img src="${partido.equipoVisitante.escudoUrl}" alt="${visitante}" style="width: 32px; height: 32px; object-fit: contain;">` 
+                    : `<span>⚽</span>`;
+
                 const fecha = new Date(partido.fecha).toLocaleDateString([], {day: '2-digit', month: '2-digit', year: 'numeric'});
                 let estadoVisual = partido.estado;
                 if (estadoVisual === 'string' || !estadoVisual) {
                     estadoVisual = 'Pendiente';
                 }
 
+                const esFinalizado = estadoVisual.toLowerCase() === 'finalizado';
                 let badgeClass = "bg-primary";
-                if (estadoVisual.toLowerCase() === 'finalizado') badgeClass = "bg-secondary";
+                if (esFinalizado) badgeClass = "bg-secondary";
                 else if (estadoVisual.toLowerCase() === 'en curso') badgeClass = "bg-success";
+
+                // Buscamos si el usuario ya pronosticó este partido
+                const miPred = misPredicciones.find(p => p.partidoId === partido.id);
+                const yaPronostico = !!miPred;
+
+                const valLocal = yaPronostico ? miPred.golesLocalPredichos : '';
+                const valVisitante = yaPronostico ? miPred.golesVisitantePredichos : '';
+                const inputDisabled = (yaPronostico || esFinalizado) ? 'disabled style="opacity: 0.75;"' : '';
+
+                const cartelResultadoReal = esFinalizado 
+                    ? `<div class="text-center mb-3 py-1 rounded" style="background: rgba(0, 210, 255, 0.1); border: 1px solid rgba(0, 210, 255, 0.25);">
+                           <small class="text-info fw-bold text-uppercase">Resultado Oficial: ${partido.golesLocal} - ${partido.golesVisitante}</small>
+                       </div>` 
+                    : '';
+
+                let botonAccionHTML = '';
+                if (esFinalizado) {
+                    if (yaPronostico) {
+                        const pts = miPred.puntosObtenidos ?? 0;
+                        const colorPts = pts > 0 ? 'success' : 'secondary';
+                        botonAccionHTML = `
+                            <div class="alert alert-${colorPts} bg-opacity-25 border-${colorPts} text-white text-center py-2 mb-0 rounded-pill fw-bold">
+                                Partido finalizado • Sumaste +${pts} pts
+                            </div>`;
+                    } else {
+                        botonAccionHTML = `
+                            <button type="button" class="btn btn-secondary w-100 fw-bold py-2 rounded-pill" disabled>
+                                Partido Finalizado (Sin pronóstico)
+                            </button>`;
+                    }
+                } else if (yaPronostico) {
+                    botonAccionHTML = `
+                        <div class="alert alert-success bg-opacity-25 border-success text-info text-center py-2 mb-0 rounded-pill fw-bold" style="background: rgba(25, 135, 84, 0.2);">
+                            ✔ Pronóstico Guardado
+                        </div>`;
+                } else {
+                    botonAccionHTML = `
+                        <button type="submit" class="btn btn-custom w-100 fw-bold py-2 text-white">
+                            Cargar Pronóstico
+                        </button>`;
+                }
 
                 const tarjeta = `
                     <div class="col-lg-5 col-md-6 mb-4">
@@ -166,21 +222,31 @@
                                 <span class="badge ${badgeClass} rounded-pill px-3 py-2">${estadoVisual}</span>
                             </div>
                             
-                            <h5 class="text-center mb-4 text-uppercase team-name">
-                                ${local} <span class="text-info mx-2">VS</span> ${visitante}
-                            </h5>
+                            <div class="d-flex justify-content-between align-items-center mb-3 px-2">
+                                <div class="d-flex align-items-center gap-2 text-truncate" style="width: 42%;">
+                                    ${escudoLocal}
+                                    <span class="text-uppercase team-name text-truncate" style="font-size: 1rem;" title="${local}">${local}</span>
+                                </div>
+                                <span class="text-info fw-bold">VS</span>
+                                <div class="d-flex align-items-center justify-content-end gap-2 text-truncate" style="width: 42%;">
+                                    <span class="text-uppercase team-name text-truncate text-end" style="font-size: 1rem;" title="${visitante}">${visitante}</span>
+                                    ${escudoVisitante}
+                                </div>
+                            </div>
+
+                            ${cartelResultadoReal}
                             
                             <form onsubmit="guardarPrediccion(event, ${partido.id})">
                                 <div class="row align-items-center mb-4 text-center">
                                     <div class="col-5">
-                                        <input type="number" id="local_${partido.id}" class="form-control text-center score-input" placeholder="L" required min="0">
+                                        <input type="number" id="local_${partido.id}" class="form-control text-center score-input" placeholder="L" value="${valLocal}" ${inputDisabled} required min="0">
                                     </div>
                                     <div class="col-2 fw-bold text-info fs-4">-</div>
                                     <div class="col-5">
-                                        <input type="number" id="visitante_${partido.id}" class="form-control text-center score-input" placeholder="V" required min="0">
+                                        <input type="number" id="visitante_${partido.id}" class="form-control text-center score-input" placeholder="V" value="${valVisitante}" ${inputDisabled} required min="0">
                                     </div>
                                 </div>
-                                <button type="submit" class="btn btn-custom w-100 fw-bold py-2 text-white">Cargar Pronóstico</button>
+                                ${botonAccionHTML}
                             </form>
                         </div>
                     </div>
@@ -221,11 +287,20 @@
                         showConfirmButton: false, 
                         timer: 3000 
                     });
+                    cargarPartidos(); 
+                } else if (response.status === 401) {
+                    Swal.fire({ 
+                        title: 'Sesión expirada', 
+                        text: 'Por favor, salí y volvé a iniciar sesión.', 
+                        icon: 'warning', 
+                        background: '#222', 
+                        color: '#fff'
+                    });
                 } else {
                     const errorText = await response.text();
                     Swal.fire({ 
                         title: 'Aviso', 
-                        text: 'Ya tenés un pronóstico guardado para este partido.', 
+                        text: errorText || 'Ya tenés un pronóstico guardado para este partido.', 
                         icon: 'info', 
                         background: '#222', 
                         color: '#fff',
@@ -235,15 +310,15 @@
             } catch (error) {
                 console.error("Error al guardar:", error);
                 Swal.fire({ 
-                        title: 'Error al guardar', 
-                        icon: 'error', 
-                        toast: true, 
-                        position: 'top-end', 
-                        background: 'rgba(30, 30, 30, 0.95)', 
-                        color: '#fff', 
-                        showConfirmButton: false, 
-                        timer: 3000 
-                    });
+                    title: 'Error al guardar', 
+                    icon: 'error', 
+                    toast: true, 
+                    position: 'top-end', 
+                    background: 'rgba(30, 30, 30, 0.95)', 
+                    color: '#fff', 
+                    showConfirmButton: false, 
+                    timer: 3000 
+                });
             }
         }
 
